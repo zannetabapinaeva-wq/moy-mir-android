@@ -20,3 +20,5 @@ body[data-theme="calm"] .scenery{background:radial-gradient(ellipse at 48% 7%,#e
 .comm-art.c15{background-position:100.0% 100.0%}
 
 .support-bar .art{display:inline-block;width:34px;height:34px;flex:none;vertical-align:middle;margin:0 5px 0 0}.support-bar button{display:flex;align-items:center;justify-content:center;gap:3px}@media(max-width:600px){.support-bar button{flex-direction:column}.support-bar .art{width:29px;height:29px;margin:0}}
+
+.pagination{gap:10px}.pagination button{min-height:52px}.pagination span{font-size:calc(15px * var(--scale))}

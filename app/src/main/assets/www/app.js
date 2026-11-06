@@ -52,7 +52,7 @@ function prepareTask(t){const n=level(t),r=rng(t.seed),target=t.seed%objects.len
  if(t.type==='count'){data.target=1+t.seed%(t.day<11?3:t.day<31?5:10);data.options=shuffled([data.target,...shuffled([...Array(t.day<11?3:10)].map((_,i)=>i+1).filter(i=>i!==data.target),t.seed).slice(0,n-1)],t.seed+3)}
  if(t.type==='purpose'){let p=[['Из чего пьют?',0],['На чём можно спать?',12],['Чем можно играть?',3],['Что можно съесть?',1],['Чем можно помыться?',11]];const chosen=p[t.seed%p.length];data.prompt=chosen[0];data.target=chosen[1];data.options=shuffled([data.target,...shuffled([0,12,3,1,11].filter(x=>x!==data.target),t.seed).slice(0,n-1)],t.seed+8)}
  if(t.type==='sequence'){data.pair=shuffled([0,1,2,3,8,13,15],t.seed).slice(0,t.day>30?3:2);data.target=data.pair[0];data.options=shuffled([data.target,...shuffled([0,1,2,3,8,13,15].filter(x=>x!==data.target),t.seed+1).slice(0,n-1)],t.seed+8)}
- if(t.type==='odd'){data.base=t.seed%4;data.target=(data.base+1)%4;data.oddPos=t.seed%n;data.options=Array.from({length:n},(_,i)=>i===data.oddPos?data.target:data.base)}
+ if(t.type==='odd'){data.base=t.seed%4;data.target=(data.base+1)%4;data.n=n+1;data.oddPos=t.seed%data.n;data.options=Array.from({length:data.n},(_,i)=>i===data.oddPos?data.target:data.base)}
  if(t.type==='sort'){data.groups=shuffled([0,1,2,3,4],t.seed).slice(0,n===2?2:3);data.items=shuffled([...data.groups,...data.groups],t.seed+3)}
  if(t.type==='life'){data.skill=t.seed%4;data.steps=skillData[data.skill][2];data.stepsArt=skillData[data.skill][3];data.options=shuffled([0,1,2],t.seed);if(data.options.every((x,i)=>x===i))data.options=[1,0,2]}
  return data}
