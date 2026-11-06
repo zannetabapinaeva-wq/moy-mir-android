@@ -60,7 +60,7 @@ async function solveToy(){
  for(const key of ['completed','skills','history','checked','toyProgress'])assert.equal(Object.keys(sandbox.window.MoyMir.state[key]).length,0);
  assert.equal(JSON.stringify({name:sandbox.window.MoyMir.state.name,schedule:sandbox.window.MoyMir.state.schedule,custom:sandbox.window.MoyMir.state.custom,level:sandbox.window.MoyMir.state.level}),retained);
  assert.equal(JSON.parse(stored.get('moy-mir-v1')).day,1);
- assert.ok(elements.get('#app').innerHTML.includes('День 1'));
+ assert.match(elements.get('#app').innerHTML,/день 1/i);
  sandbox.testTask=sandbox.window.MoyMir.dayTasks(1)[0];evaluate('startTask(testTask)');assert.ok(evaluate('gameData.id').startsWith('d1-'));
  // Every selected answer and result reaches the Android speech bridge.
  const speech=[];const bridge={speak:text=>speech.push(text),stop(){},getVoices:()=>"[]"};sandbox.MoyMirNative=bridge;sandbox.window.MoyMirNative=bridge;sandbox.window.speechSynthesis=sandbox.speechSynthesis={cancel(){},speak:u=>speech.push(u.text),getVoices:()=>[]};sandbox.SpeechSynthesisUtterance=function(text){this.text=text};
