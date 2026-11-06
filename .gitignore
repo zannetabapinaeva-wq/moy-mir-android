@@ -6,3 +6,4 @@ local.properties
 signing/
 build-download/
 release/
+node_modules/

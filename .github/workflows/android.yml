@@ -23,9 +23,11 @@ jobs:
           gradle-version: '8.9'
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
-      - name: Check learning program and reset
-        run: node check.cjs
+          node-version: '24'
+      - name: Install check dependencies
+        run: npm ci --ignore-scripts
+      - name: Check learning program and compatibility
+        run: npm test
       - name: Build and lint release
         run: gradle --no-daemon :app:assembleRelease :app:lintRelease
       - name: Prepare unsigned APK and official signing tool
