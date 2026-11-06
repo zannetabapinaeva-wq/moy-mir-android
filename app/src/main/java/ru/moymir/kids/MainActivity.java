@@ -6,6 +6,14 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.net.Uri;
+import android.media.MediaRecorder;
+import android.os.Build;
+import android.os.Handler;
+import android.os.Looper;
+import android.provider.Settings;
+import android.util.Base64;
+import java.io.File;
+import java.nio.file.Files;
 import android.os.Bundle;
 import android.speech.tts.TextToSpeech;
 import android.speech.tts.Voice;
@@ -37,6 +45,11 @@ public class MainActivity extends Activity {
     private ValueCallback<Uri[]> fileCallback;
     private PermissionRequest pendingMicrophone;
     private String pendingBackup;
+    private MediaRecorder nameRecorder;
+    private File nameAudioFile;
+    private boolean pendingNameRecording, destroying;
+    private final Handler recordingHandler = new Handler(Looper.getMainLooper());
+    private final Runnable recordingTimeout = () -> finishNameRecording(true);
 
     @Override public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -95,7 +108,71 @@ public class MainActivity extends Activity {
     }
     private static boolean isLocal(Uri uri){return "https".equals(uri.getScheme())&&"appassets.androidplatform.net".equals(uri.getHost());}
     private void notice(String text){runOnUiThread(()->Toast.makeText(this,text,Toast.LENGTH_LONG).show());}
+    private void nameRecordingResult(String status, String payload) {
+        if (!destroying && web != null) web.evaluateJavascript("window.onNativeNameRecording && window.onNativeNameRecording(" + JSONObject.quote(status) + "," + JSONObject.quote(payload) + ")", null);
+    }
+    private void requestNameRecording() {
+        if (pendingNameRecording || nameRecorder != null) return;
+        if (!getPackageManager().hasSystemFeature(PackageManager.FEATURE_MICROPHONE)) {
+            nameRecordingResult("error", "На этом устройстве нет микрофона. Можно выбрать готовую аудиозапись."); return;
+        }
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) startNameRecording();
+        else { pendingNameRecording = true; requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, RECORD_PERMISSION); }
+    }
+    @SuppressWarnings("deprecation")
+    private void startNameRecording() {
+        if (destroying || nameRecorder != null) return;
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) { nameRecordingResult("denied", ""); return; }
+        if (tts != null) tts.stop();
+        try {
+            nameAudioFile = File.createTempFile("name-", ".m4a", getCacheDir());
+            nameRecorder = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S ? new MediaRecorder(this) : new MediaRecorder();
+            nameRecorder.setAudioSource(MediaRecorder.AudioSource.MIC);
+            nameRecorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
+            nameRecorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC);
+            nameRecorder.setAudioChannels(1);
+            nameRecorder.setAudioSamplingRate(44100);
+            nameRecorder.setAudioEncodingBitRate(64000);
+            nameRecorder.setOutputFile(nameAudioFile.getAbsolutePath());
+            nameRecorder.setMaxDuration(10000);
+            nameRecorder.setOnInfoListener((recorder, what, extra) -> { if (what == MediaRecorder.MEDIA_RECORDER_INFO_MAX_DURATION_REACHED) finishNameRecording(true); });
+            nameRecorder.setOnErrorListener((recorder, what, extra) -> { finishNameRecording(false); nameRecordingResult("error", "Микрофон недоступен. Завершите другой звонок или запись и попробуйте ещё раз."); });
+            nameRecorder.prepare();
+            nameRecorder.start();
+            recordingHandler.postDelayed(recordingTimeout, 10500);
+            nameRecordingResult("started", "");
+        } catch (Exception ex) {
+            finishNameRecording(false);
+            nameRecordingResult("error", "Не удалось начать запись. Проверьте доступ к микрофону для приложения и завершите другие записи или звонок.");
+        }
+    }
+    private void finishNameRecording(boolean save) {
+        pendingNameRecording = false;
+        recordingHandler.removeCallbacks(recordingTimeout);
+        MediaRecorder recorder = nameRecorder;
+        File file = nameAudioFile;
+        nameRecorder = null; nameAudioFile = null;
+        if (recorder == null) { if (file != null) file.delete(); return; }
+        boolean stopped = false;
+        try { recorder.stop(); stopped = true; } catch (RuntimeException ignored) { /* Too short or interrupted: keep the previous recording. */ }
+        finally { try { recorder.release(); } catch (RuntimeException ignored) {} }
+        try {
+            if (save && stopped && file != null && file.length() > 0 && file.length() <= 1200000) {
+                String data = "data:audio/mp4;base64," + Base64.encodeToString(Files.readAllBytes(file.toPath()), Base64.NO_WRAP);
+                nameRecordingResult("saved", data);
+            } else if (save) nameRecordingResult("error", "Запись слишком короткая или прервалась. Попробуйте записать имя ещё раз.");
+        } catch (Exception ex) { nameRecordingResult("error", "Не удалось сохранить звук. Прежняя запись имени сохранена."); }
+        finally { if (file != null) file.delete(); }
+    }
     public final class NativeBridge {
+        @JavascriptInterface public void startNameRecording(){runOnUiThread(()->requestNameRecording());}
+        @JavascriptInterface public void stopNameRecording(){runOnUiThread(()->finishNameRecording(true));}
+        @JavascriptInterface public void cancelNameRecording(){runOnUiThread(()->finishNameRecording(false));}
+        @JavascriptInterface public void openAppSettings(){runOnUiThread(()->{
+            try { startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName()))); }
+            catch(Exception ex) { notice("Откройте настройки Android → Приложения → Мой мир → Разрешения → Микрофон"); }
+        });}
+
         @JavascriptInterface public void speak(String text,float rate,float volume,String voiceName){runOnUiThread(()->{
             if(!speechReady){notice("Для озвучки установите русский голос в настройках синтеза речи Android");return;}
             if(voiceName!=null&&!voiceName.isEmpty()&&tts.getVoices()!=null)for(Voice voice:tts.getVoices())if(voice.getName().equals(voiceName)&&!voice.isNetworkConnectionRequired()){tts.setVoice(voice);break;}
@@ -118,7 +195,11 @@ public class MainActivity extends Activity {
     }
     @Override public void onRequestPermissionsResult(int requestCode,String[] permissions,int[] grantResults){
         super.onRequestPermissionsResult(requestCode,permissions,grantResults);
-        if(requestCode==RECORD_PERMISSION&&pendingMicrophone!=null){if(grantResults.length>0&&grantResults[0]==PackageManager.PERMISSION_GRANTED)pendingMicrophone.grant(new String[]{PermissionRequest.RESOURCE_AUDIO_CAPTURE});else pendingMicrophone.deny();pendingMicrophone=null;}
+        if(requestCode==RECORD_PERMISSION){
+            boolean granted=grantResults.length>0&&grantResults[0]==PackageManager.PERMISSION_GRANTED;
+            if(pendingMicrophone!=null){if(granted)pendingMicrophone.grant(new String[]{PermissionRequest.RESOURCE_AUDIO_CAPTURE});else pendingMicrophone.deny();pendingMicrophone=null;}
+            if(pendingNameRecording){pendingNameRecording=false;if(granted)startNameRecording();else nameRecordingResult("denied", "");}
+        }
     }
     @Override protected void onActivityResult(int requestCode,int resultCode,Intent data){
         super.onActivityResult(requestCode,resultCode,data);
@@ -132,7 +213,7 @@ public class MainActivity extends Activity {
         }
     }
     @Override public void onBackPressed(){web.evaluateJavascript("(()=>{if(document.querySelector('#modal').innerHTML){closeModal();return}if(typeof route!=='undefined'&&route!=='home'){navigate('home');return}MoyMirNative.stop()})()",null);}
-    @Override protected void onPause(){super.onPause();if(tts!=null)tts.stop();web.onPause();}
+    @Override protected void onPause(){super.onPause();if(nameRecorder!=null)finishNameRecording(true);if(tts!=null)tts.stop();web.onPause();}
     @Override protected void onResume(){super.onResume();if(web!=null)web.onResume();}
-    @Override protected void onDestroy(){if(fileCallback!=null)fileCallback.onReceiveValue(null);if(pendingMicrophone!=null)pendingMicrophone.deny();if(tts!=null){tts.stop();tts.shutdown();}web.removeJavascriptInterface("MoyMirNative");web.destroy();super.onDestroy();}
+    @Override protected void onDestroy(){destroying=true;finishNameRecording(false);if(fileCallback!=null)fileCallback.onReceiveValue(null);if(pendingMicrophone!=null)pendingMicrophone.deny();if(tts!=null){tts.stop();tts.shutdown();}web.removeJavascriptInterface("MoyMirNative");web.destroy();super.onDestroy();}
 }
