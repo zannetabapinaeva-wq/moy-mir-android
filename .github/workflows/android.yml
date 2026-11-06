@@ -1,12 +1,12 @@
-name: Build and publish APK
+name: Build Android APK
 on:
   push:
     branches: [main]
   workflow_dispatch:
 permissions:
-  contents: write
+  contents: read
 concurrency:
-  group: android-release
+  group: android-build
   cancel-in-progress: false
 jobs:
   build:
@@ -26,33 +26,18 @@ jobs:
           node-version: '22'
       - name: Check learning program and reset
         run: node check.cjs
-      - name: Build release
-        env:
-          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-        run: |
-          gradle --no-daemon :app:assembleRelease :app:lintRelease
-      - name: Prepare APK
+      - name: Build and lint release
+        run: gradle --no-daemon :app:assembleRelease :app:lintRelease
+      - name: Prepare unsigned APK and official signing tool
         run: |
           mkdir -p release
-          if [ -f app/build/outputs/apk/release/app-release.apk ]; then
-            cp app/build/outputs/apk/release/app-release.apk release/moy-mir.apk
-            "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose release/moy-mir.apk
-          else
-            cp app/build/outputs/apk/release/app-release-unsigned.apk release/moy-mir-unsigned.apk
-          fi
+          cp app/build/outputs/apk/release/app-release-unsigned.apk release/moy-mir-unsigned.apk
+          cp "$ANDROID_HOME/build-tools/35.0.0/lib/apksigner.jar" release/apksigner.jar
           cd release
           sha256sum *.apk > SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: moy-mir-apk
+          name: moy-mir-build
           path: release/*
-      - name: Publish public download
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          if [ ! -f release/moy-mir.apk ]; then
-            echo 'Build checked successfully. Signing and publication await owner authorization.' >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-          TAG="v1.0.${GITHUB_RUN_NUMBER}"
-          gh release create "$TAG" release/moy-mir.apk release/SHA256SUMS.txt --target "$GITHUB_SHA" --title "Мой мир — Android 1.0.${GITHUB_RUN_NUMBER}" --notes "Яркие 3D-карточки, 60 дней занятий, голосовые инструкции, пустое поле имени при первом входе и сброс программы в настройках для родителей. Android 8.0 и новее. Контент внутри APK; вход в ChatGPT не требуется. Для озвучки установите русский голос Android."
+      - name: Summary
+        run: echo 'Unsigned APK built and lint checked. Signing keys are kept outside GitHub. The signed APK is published separately in Releases.' >> "$GITHUB_STEP_SUMMARY"
