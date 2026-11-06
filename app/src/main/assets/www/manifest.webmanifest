@@ -1,1 +1,1 @@
-{"name":"Мой мир — играю и расту","short_name":"Мой мир","lang":"ru","start_url":"./","display":"standalone","background_color":"#69d3fb","theme_color":"#25a9ef","icons":[{"src":"assets/icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any"}]}
+{"name": "Мой мир — играю и расту", "short_name": "Мой мир", "lang": "ru", "start_url": "./", "display": "standalone", "background_color": "#69d3fb", "theme_color": "#25a9ef", "icons": [{"src": "assets/icon.webp", "sizes": "512x512", "type": "image/webp", "purpose": "any"}]}
