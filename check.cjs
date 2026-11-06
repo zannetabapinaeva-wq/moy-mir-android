@@ -5,15 +5,24 @@ const sandbox={console,URL,Blob,Intl,Date,Math,JSON,Number,String,Array,Set,Prom
 vm.createContext(sandbox);vm.runInContext(fs.readFileSync('app/src/main/assets/www/app.js','utf8'),sandbox);
 const evaluate=code=>vm.runInContext(code,sandbox);
 const click=dataset=>listeners.click({target:{closest:()=>({dataset})}});
+async function solveToy(){
+ const c=evaluate('toyState.cfg');const moves=[];
+ if(c.type==='sorter')for(const p of c.items)moves.push([p.id,p.id]);
+ if(c.type==='pyramid')for(let rod=0;rod<c.rods.length;rod++)for(const p of [...c.items].filter(p=>p.rod===rod).sort((a,b)=>a.rank-b.rank))moves.push([p.id,rod]);
+ if(c.type==='tower')for(let target=0;target<c.patterns.length;target++)for(const id of c.patterns[target])moves.push([id,target]);
+ if(c.type==='beads')for(let target=0;target<c.pattern.length;target++)moves.push([c.pattern[target],target]);
+ for(const [piece,target] of moves){const before=evaluate('toyState.placed.length');await click({action:'toy-piece',value:String(piece)});await click({action:'toy-place',value:String(target)});assert.equal(evaluate('toyState.placed.length'),before+1,`${c.type} level ${c.level}, piece ${piece}`)}
+ assert.ok(evaluate('success'));
+}
 (async()=>{
  let total=0;const ids=new Set(),days=new Set();
  for(let day=1;day<=60;day++){
-  const tasks=sandbox.window.MoyMir.dayTasks(day);assert.equal(tasks.length,8);days.add(tasks.map(t=>t.type+':'+t.seed).join('|'));
+  const tasks=sandbox.window.MoyMir.dayTasks(day);assert.equal(tasks.length,20);days.add(tasks.map(t=>t.type+':'+t.seed).join('|'));
   for(const t of tasks){
    ids.add(t.id);sandbox.testTask=t;evaluate('startTask(testTask)');let d=evaluate('gameData');
    if(t.type==='memory')await click({action:'memory-hide'});
    if(['sorter','pyramid','tower','beads'].includes(t.type)){
-    const count=evaluate('toyState.count');for(let j=0;j<count;j++){const id=t.type==='beads'?evaluate('toyState.pattern['+j+']'):j;await click({action:'toy-piece',value:String(id)});await click({action:'toy-place',value:String(t.type==='sorter'?id:t.type==='beads'?j:0)})}
+    await solveToy();
    }else if(t.type==='puzzle'){
     let p=evaluate('puzzle');for(let i=0;i<p.length;i++){if(p[i]!==i){await click({action:'puzzle-piece',index:String(i)});await click({action:'puzzle-piece',index:String(p.indexOf(i))});p=evaluate('puzzle')}}
    }else if(t.type==='life'){for(let v=0;v<3;v++)await click({action:'order',value:String(v)})}
@@ -22,7 +31,7 @@ const click=dataset=>listeners.click({target:{closest:()=>({dataset})}});
    assert.ok(evaluate('success'),`not completed ${t.id} (${t.type})`);assert.ok(sandbox.window.MoyMir.state.completed[t.id],`not persisted ${t.id}`);total++;
   }
  }
- assert.equal(total,480);assert.equal(ids.size,480);assert.equal(days.size,60);
+ assert.equal(total,1200);assert.equal(ids.size,1200);assert.equal(days.size,60);
  // Wrong answers stay playable, help is non-punitive, and a retry can succeed.
  evaluate("state.level='3'; startTask({type:'find',day:1,index:0,seed:7,id:'retry-check'})");
  let d=evaluate('gameData'),wrong=d.options.find(v=>v!==d.target);
@@ -48,7 +57,7 @@ const click=dataset=>listeners.click({target:{closest:()=>({dataset})}});
  const retained=JSON.stringify({name:sandbox.window.MoyMir.state.name,schedule:sandbox.window.MoyMir.state.schedule,custom:sandbox.window.MoyMir.state.custom,level:sandbox.window.MoyMir.state.level});
  await click({action:'reset-program'});await click({action:'gate-answer',value:String(sandbox.window.gateAnswer)});await click({action:'reset-confirm'});
  assert.equal(sandbox.window.MoyMir.state.day,1);
- for(const key of ['completed','skills','history','checked'])assert.equal(Object.keys(sandbox.window.MoyMir.state[key]).length,0);
+ for(const key of ['completed','skills','history','checked','toyProgress'])assert.equal(Object.keys(sandbox.window.MoyMir.state[key]).length,0);
  assert.equal(JSON.stringify({name:sandbox.window.MoyMir.state.name,schedule:sandbox.window.MoyMir.state.schedule,custom:sandbox.window.MoyMir.state.custom,level:sandbox.window.MoyMir.state.level}),retained);
  assert.equal(JSON.parse(stored.get('moy-mir-v1')).day,1);
  assert.ok(elements.get('#app').innerHTML.includes('День 1'));
@@ -81,11 +90,33 @@ const click=dataset=>listeners.click({target:{closest:()=>({dataset})}});
  assert.ok(ghostRemoved);assert.equal(evaluate('toyState.placed[0]'),0);evaluate('lastToyDrag=0');
  // Previously completed daily games retain their original activity type after adding toys.
  evaluate("state.completed['d40-t0']={day:40,type:'find'}");assert.equal(sandbox.window.MoyMir.dayTasks(40)[0].type,'find');
+ // All 80 hand-authored levels are distinct, reachable, completable, and persisted.
+ evaluate('state.toyProgress={}');let authored=0;
+ for(const type of ['sorter','pyramid','tower','beads']){
+  const levels=sandbox.window.MoyMir.toyLevels[type];assert.equal(levels.length,20);
+  if(type==='sorter')for(const c of levels)assert.equal(new Set(c.items.map(p=>[p.shape,p.color,p.size].join(':'))).size,c.count);
+  const signatures=new Set(levels.map(c=>JSON.stringify({items:c.items,order:c.order,rods:c.rods,patterns:c.patterns,pattern:c.pattern,layout:c.layout})));assert.equal(signatures.size,20,type+' distinct levels');
+  await click({action:'free-game',type});assert.equal(evaluate('route'),'toy-levels');assert.equal((elements.get('#app').innerHTML.match(/class="toy-level-card /g)||[]).length,20);
+  for(let n=1;n<=20;n++){await click({action:'toy-level-start',type,level:String(n)});assert.equal(evaluate('gameData.toyLevel'),n);assert.ok(evaluate('gameData.series'));const startCount=evaluate('toyState.placed.length');assert.equal(startCount,0);await solveToy();assert.ok(sandbox.window.MoyMir.state.toyProgress[type].includes(n));authored++;
+   await click({action:'next-task'});if(n<20)assert.equal(evaluate('gameData.toyLevel'),n+1);else assert.equal(evaluate('route'),'toy-levels');
+  }
+  assert.equal(sandbox.window.MoyMir.state.toyProgress[type].length,20);
+ }
+ assert.equal(authored,80);
+ const be=sandbox.window.MoyMir.toyLevels.beads;assert.equal(new Set(be[0].items.map(p=>p.color)).size,1);assert.ok(new Set(be[19].items.map(p=>p.color)).size>=4);assert.equal(be[19].layout,'circle');assert.ok(be.some(c=>c.layout==='zigzag'));assert.ok(new Set(be[19].items.map(p=>p.shape)).size>=3);
+ assert.ok(sandbox.window.MoyMir.toyLevels.pyramid[19].rods.length>1);assert.ok(sandbox.window.MoyMir.toyLevels.sorter[19].rule.includes('size'));assert.equal(sandbox.window.MoyMir.toyLevels.tower[19].patterns.length,2);
+ assert.equal(JSON.parse(stored.get('moy-mir-v1')).toyProgress.beads.length,20);
+ // Daily navigation continues beyond the former eighth task and completes only after task 20.
+ evaluate('state.day=1;startTask(dayTasks(1)[7]);chosenAnswer=gameData.target;win("Правильно")');await click({action:'next-task'});assert.equal(evaluate('gameData.index'),8);assert.equal(sandbox.window.MoyMir.state.day,1);
+ evaluate('startTask(dayTasks(1)[18]);chosenAnswer=gameData.target;win("Правильно")');await click({action:'next-task'});assert.equal(evaluate('gameData.index'),19);evaluate('chosenAnswer=gameData.target;win("Правильно")');await click({action:'next-task'});assert.equal(sandbox.window.MoyMir.state.day,2);
+ // A reset also clears all level marks, while cancellation preserves them.
+ await click({action:'reset-program'});await click({action:'gate-answer',value:String(sandbox.window.gateAnswer)});await click({action:'close'});assert.equal(sandbox.window.MoyMir.state.toyProgress.beads.length,20);
+ await click({action:'reset-program'});await click({action:'gate-answer',value:String(sandbox.window.gateAnswer)});await click({action:'reset-confirm'});assert.equal(Object.keys(sandbox.window.MoyMir.state.toyProgress).length,0);
  // First-entry field stays empty even if an unfinished old welcome had the example name.
  const callbacks=[];
  const fresh={...sandbox,window:{addEventListener(){},scrollTo(){}},localStorage:{getItem:()=>JSON.stringify({onboarded:false,name:'Абубакар'}),setItem(){}},setTimeout:(cb,ms)=>{if(ms===400)callbacks.push(cb);return 0}};
  vm.createContext(fresh);vm.runInContext(fs.readFileSync('app/src/main/assets/www/app.js','utf8'),fresh);callbacks[0]();
  assert.equal(fresh.window.MoyMir.state.name,'');
  assert.ok(elements.get('#modal').innerHTML.includes('Напишите имя<input name="name" value=""'));
- console.log(JSON.stringify({activitiesCompleted:total,uniqueDays:days.size,uniqueActivities:ids.size,retryAndHelp:'passed',parentGate:'passed',schedule:'passed',localProgress:'passed',resetConfirmationAndCancellation:'passed',resetPreservesSettings:'passed',emptyWelcomeName:'passed',spokenChoicesAndAnswers:'passed',fourToyGames:'passed',dragAndTap:'passed',largeNextButton:'passed',browserQA:'unavailable: preview daemon missing'}));
+ console.log(JSON.stringify({activitiesCompleted:total,uniqueDays:days.size,uniqueActivities:ids.size,retryAndHelp:'passed',parentGate:'passed',schedule:'passed',localProgress:'passed',resetConfirmationAndCancellation:'passed',resetPreservesSettings:'passed',emptyWelcomeName:'passed',spokenChoicesAndAnswers:'passed',handGameLevels:80,levelsAndProgress:'passed',dailyTasks:20,dragAndTap:'passed',largeNextButton:'passed',browserQA:'unavailable: preview daemon missing'}));
 })().catch(e=>{console.error(e);process.exit(1)});
