@@ -1,0 +1,58 @@
+name: Build and publish APK
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: android-release
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check learning program and reset
+        run: node check.cjs
+      - name: Build release
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          gradle --no-daemon :app:assembleRelease :app:lintRelease
+      - name: Prepare APK
+        run: |
+          mkdir -p release
+          if [ -f app/build/outputs/apk/release/app-release.apk ]; then
+            cp app/build/outputs/apk/release/app-release.apk release/moy-mir.apk
+            "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose release/moy-mir.apk
+          else
+            cp app/build/outputs/apk/release/app-release-unsigned.apk release/moy-mir-unsigned.apk
+          fi
+          cd release
+          sha256sum *.apk > SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: moy-mir-apk
+          path: release/*
+      - name: Publish public download
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ ! -f release/moy-mir.apk ]; then
+            echo 'Build checked successfully. Signing and publication await owner authorization.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          TAG="v1.0.${GITHUB_RUN_NUMBER}"
+          gh release create "$TAG" release/moy-mir.apk release/SHA256SUMS.txt --target "$GITHUB_SHA" --title "Мой мир — Android 1.0.${GITHUB_RUN_NUMBER}" --notes "Яркие 3D-карточки, 60 дней занятий, голосовые инструкции, пустое поле имени при первом входе и сброс программы в настройках для родителей. Android 8.0 и новее. Контент внутри APK; вход в ChatGPT не требуется. Для озвучки установите русский голос Android."
